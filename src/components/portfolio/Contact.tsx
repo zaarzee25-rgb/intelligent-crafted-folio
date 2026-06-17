@@ -1,10 +1,21 @@
 import { SectionShell, FadeUp } from "./Section";
 import { profile } from "@/lib/portfolio-data";
-import { Github, Linkedin, Instagram, Mail, MessageCircle, Send } from "lucide-react";
+import { Github, Linkedin, Instagram, Mail, MessageCircle, Send, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { z } from "zod";
+
+const messageSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(255),
+  subject: z.string().trim().max(200).optional(),
+  message: z.string().trim().min(5).max(4000),
+});
 
 export function Contact() {
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   return (
     <SectionShell
@@ -55,9 +66,30 @@ export function Contact() {
         <FadeUp delay={0.1}>
           <form
             className="surface-card p-8 sm:p-10"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
+              const form = e.currentTarget;
+              const fd = new FormData(form);
+              const parsed = messageSchema.safeParse({
+                name: fd.get("name"),
+                email: fd.get("email"),
+                subject: fd.get("subject") || undefined,
+                message: fd.get("message"),
+              });
+              if (!parsed.success) {
+                toast.error(parsed.error.issues[0]?.message ?? "Please check the form");
+                return;
+              }
+              setBusy(true);
+              const { error } = await (supabase as any).from("contact_messages").insert(parsed.data);
+              setBusy(false);
+              if (error) {
+                toast.error("Failed to send. Please try again.");
+                return;
+              }
+              toast.success("Message sent. I'll reply soon.");
               setSent(true);
+              form.reset();
               setTimeout(() => setSent(false), 4000);
             }}
           >
@@ -65,12 +97,13 @@ export function Contact() {
               <Field label="Name" name="name" placeholder="Your full name" />
               <Field label="Email" name="email" type="email" placeholder="you@company.com" />
             </div>
-            <Field className="mt-4" label="Subject" name="subject" placeholder="Project, role, or topic" />
+            <Field className="mt-4" label="Subject" name="subject" placeholder="Project, role, or topic" required={false} />
             <div className="mt-4">
               <label className="mb-1.5 block text-xs font-medium tracking-wider text-muted-foreground uppercase">
                 Message
               </label>
               <textarea
+                name="message"
                 rows={6}
                 required
                 placeholder="A few sentences about your context, timeline, and what success looks like."
@@ -83,10 +116,11 @@ export function Contact() {
               </div>
               <button
                 type="submit"
-                className="group inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-glow)]"
+                disabled={busy}
+                className="group inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-glow)] disabled:opacity-60"
               >
-                {sent ? "Sent — thank you" : "Send message"}
-                <Send className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : sent ? "Sent — thank you" : "Send message"}
+                {!busy && <Send className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
               </button>
             </div>
           </form>
@@ -102,12 +136,14 @@ function Field({
   type = "text",
   placeholder,
   className = "",
+  required = true,
 }: {
   label: string;
   name: string;
   type?: string;
   placeholder?: string;
   className?: string;
+  required?: boolean;
 }) {
   return (
     <div className={className}>
@@ -117,7 +153,7 @@ function Field({
       <input
         type={type}
         name={name}
-        required
+        required={required}
         placeholder={placeholder}
         className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-border-strong focus:outline-none"
       />
